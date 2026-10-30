@@ -1,43 +1,212 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hey ChatGPT Voice Assistant</title>
-    <link rel="stylesheet" href="/style.css" />
-  </head>
-  <body>
-    <main class="app-shell">
-      <div class="card">
-        <p class="badge">Voice Assistant</p>
-        <h1>Hey ChatGPT</h1>
-        <p class="subtitle">Say “Hey ChatGPT” and then speak your question. Say “send” or “.” to submit.</p>
+const micButton = document.getElementById('micButton');
+const transcriptBox = document.getElementById('transcript');
+const responseBox = document.getElementById('response');
+const statusIndicator = document.getElementById('statusIndicator');
+const memoryBox = document.getElementById('memory');
+const clearMemoryButton = document.getElementById('clearMemory');
 
-        <div class="status-row">
-          <button id="micButton" class="mic-button" type="button">Start listening</button>
-          <span id="statusIndicator" class="status idle">Idle</span>
-        </div>
+const sessionId = localStorage.getItem('chatgpt_session_id') || createSessionId();
+localStorage.setItem('chatgpt_session_id', sessionId);
 
-        <div class="panel">
-          <h2>Live transcript</h2>
-          <div id="transcript" class="transcript">Waiting for wake word...</div>
-        </div>
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition;
+let listening = false;
+let wakeDetected = false;
+let pendingPrompt = '';
 
-        <div class="panel response-panel">
-          <h2>ChatGPT response</h2>
-          <div id="response" class="response">No response yet.</div>
-        </div>
+function createSessionId() {
+  if (window.crypto && window.crypto.randomUUID) {
+    return window.crypto.randomUUID();
+  }
 
-        <div class="panel memory-panel">
-          <div class="memory-header">
-            <h2>Conversation memory</h2>
-            <button id="clearMemory" class="clear-button" type="button">Clear memory</button>
-          </div>
-          <div id="memory" class="memory-box">No saved memory yet. Start talking to build context.</div>
-        </div>
-      </div>
-    </main>
+  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
-    <script src="/app.js"></script>
-  </body>
-</html>
+function setStatus(mode) {
+  statusIndicator.className = 'status';
+  statusIndicator.classList.add(mode);
+  if (mode === 'idle') { statusIndicator.textContent = 'Idle'; }
+  if (mode === 'listening') { statusIndicator.textContent = 'Listening'; }
+  if (mode === 'speaking') { statusIndicator.textContent = 'Speaking'; }
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utterance);
+  setStatus('speaking');
+  utterance.onend = () => setStatus(listening ? 'listening' : 'idle');
+}
+
+function normalizePrompt(prompt) {
+  return prompt
+    .replace(/\b(?:hey|hi)\s+chatgpt\b/gi, '')
+    .replace(/\b(?:send|send it|submit|done)\b/gi, '')
+    .replace(/\b(?:period|dot)\b/gi, '')
+    .replace(/[.?!]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function renderMemory(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    memoryBox.textContent = 'No saved memory yet. Start talking to build context.';
+    return;
+  }
+
+  const recent = history.slice(-8);
+  memoryBox.innerHTML = recent
+    .map((item) => `<div class="memory-item ${item.role}"><strong>${item.role === 'user' ? 'You' : 'ChatGPT'}:</strong> ${escapeHtml(item.content)}</div>`)
+    .join('');
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function loadBrowserMemory() {
+  const saved = localStorage.getItem(`chatgpt_memory_${sessionId}`);
+  if (!saved) {
+    renderMemory([]);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+    renderMemory(Array.isArray(parsed) ? parsed : []);
+  } catch (error) {
+    console.error('Failed to load browser memory:', error);
+    renderMemory([]);
+  }
+}
+
+function saveMemoryToBrowser(history) {
+  localStorage.setItem(`chatgpt_memory_${sessionId}`, JSON.stringify(history || []));
+  renderMemory(history || []);
+}
+
+async function sendToChatGPT(prompt) {
+  transcriptBox.textContent = `Sending: ${prompt}`;
+  responseBox.textContent = 'Thinking...';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt, sessionId })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+
+    responseBox.textContent = data.reply;
+    saveMemoryToBrowser(data.memory || []);
+    speak(data.reply);
+  } catch (error) {
+    console.error(error);
+    responseBox.textContent = `Error: ${error.message}`;
+    speak('I could not process that request.');
+  }
+}
+
+function startListening() {
+  if (!SpeechRecognition) {
+    responseBox.textContent = 'Speech recognition is not supported in this browser. Use Chrome or Edge.';
+    return;
+  }
+
+  if (!recognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      listening = true;
+      setStatus('listening');
+      transcriptBox.textContent = 'Listening for “Hey ChatGPT”…';
+    };
+
+    recognition.onresult = (event) => {
+      const fullTranscript = Array.from(event.results).map((result) => result[0].transcript).join(' ');
+      transcriptBox.textContent = fullTranscript;
+
+      const lowerTranscript = fullTranscript.toLowerCase();
+      const hasWakeWord = /hey\s+chatgpt/i.test(lowerTranscript);
+      if (hasWakeWord) wakeDetected = true;
+      if (!wakeDetected) return;
+
+      const cleaned = fullTranscript.replace(/.*?hey\s+chatgpt/i, '').trim();
+      pendingPrompt = cleaned;
+
+      const shouldSubmit =
+        /\b(?:send|send it|submit|done)\b/i.test(fullTranscript) ||
+        /\b(?:period|dot)\b/i.test(fullTranscript) ||
+        /\.$/.test(fullTranscript);
+
+      if (shouldSubmit) {
+        const finalPrompt = normalizePrompt(pendingPrompt);
+        if (finalPrompt) sendToChatGPT(finalPrompt);
+        wakeDetected = false;
+        pendingPrompt = '';
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      responseBox.textContent = `Speech recognition error: ${event.error}`;
+    };
+
+    recognition.onend = () => {
+      if (listening) recognition.start();
+    };
+  }
+
+  recognition.start();
+  listening = true;
+  setStatus('listening');
+  transcriptBox.textContent = 'Listening for “Hey ChatGPT”…';
+}
+
+function stopListening() {
+  listening = false;
+  wakeDetected = false;
+  pendingPrompt = '';
+  if (recognition) recognition.stop();
+  setStatus('idle');
+  transcriptBox.textContent = 'Mic stopped. Press start to resume.';
+}
+
+micButton.addEventListener('click', () => {
+  if (listening) {
+    stopListening();
+    micButton.textContent = 'Start listening';
+  } else {
+    startListening();
+    micButton.textContent = 'Stop listening';
+  }
+});
+
+clearMemoryButton.addEventListener('click', () => {
+  localStorage.removeItem(`chatgpt_memory_${sessionId}`);
+  renderMemory([]);
+  fetch('/api/session/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch((err) => console.log('SW registration failed', err));
+  });
+}
+
+loadBrowserMemory();
+setStatus('idle');

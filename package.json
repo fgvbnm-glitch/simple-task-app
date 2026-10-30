@@ -1,12 +1,10 @@
 {
-  "name": "hey-chatgpt-voice-assistant",
+  "name": "hey-chatgpt-pwa",
   "version": "1.0.0",
   "private": true,
-  "description": "Voice-triggered ChatGPT-style assistant using browser speech recognition and text-to-speech.",
-  "main": "server.js",
+  "description": "ChromeOS-friendly PWA voice assistant with memory and OpenAI response playback.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
