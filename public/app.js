@@ -1,148 +1,131 @@
-* {
-  box-sizing: border-box;
+require('dotenv').config();
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+const port = process.env.PORT || 3000;
+const memoryDir = path.join(__dirname, 'data');
+const memoryFile = path.join(memoryDir, 'memory.json');
+
+if (!fs.existsSync(memoryDir)) {
+  fs.mkdirSync(memoryDir, { recursive: true });
 }
 
-:root {
-  --bg: #0d1117;
-  --panel: #161b22;
-  --panel-alt: #1f2937;
-  --primary: #7c3aed;
-  --primary-light: #a78bfa;
-  --text: #f3f4f6;
-  --muted: #cbd5e1;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+if (!fs.existsSync(memoryFile)) {
+  fs.writeFileSync(memoryFile, JSON.stringify({}, null, 2));
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  font-family: Arial, Helvetica, sans-serif;
-  background: linear-gradient(135deg, #111827 0%, #0f172a 50%, #1e293b 100%);
-  color: var(--text);
-  display: grid;
-  place-items: center;
-}
+const conversationMemory = loadMemory();
 
-.app-shell {
-  width: min(100%, 760px);
-  padding: 24px;
-}
+app.use(express.json({ limit: '1mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-.card {
-  background: rgba(17, 24, 39, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 24px;
-  padding: 28px;
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
-}
-
-.badge {
-  margin: 0 0 12px;
-  display: inline-block;
-  background: rgba(124, 58, 237, 0.12);
-  color: var(--primary-light);
-  border: 1px solid rgba(124, 58, 237, 0.3);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-}
-
-.subtitle {
-  color: var(--muted);
-  line-height: 1.6;
-  margin: 12px 0 22px;
-}
-
-.status-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 24px;
-}
-
-.mic-button {
-  appearance: none;
-  border: none;
-  border-radius: 999px;
-  padding: 14px 22px;
-  background: linear-gradient(135deg, var(--primary), #4f46e5);
-  color: white;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 12px 30px rgba(124, 58, 237, 0.4);
-}
-
-.mic-button:hover {
-  transform: translateY(-1px);
-}
-
-.status {
-  font-weight: 700;
-  font-size: 0.95rem;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.status.idle {
-  color: var(--muted);
-}
-
-.status.listening {
-  color: #bbf7d0;
-  background: rgba(34, 197, 94, 0.12);
-}
-
-.status.speaking {
-  color: #fef3c7;
-  background: rgba(245, 158, 11, 0.12);
-}
-
-.panel {
-  background: rgba(31, 41, 55, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  padding: 20px;
-  margin-top: 8px;
-}
-
-.panel h2 {
-  margin: 0 0 12px;
-  font-size: 1.05rem;
-}
-
-.transcript,
-.response {
-  min-height: 88px;
-  line-height: 1.6;
-  color: var(--text);
-  white-space: pre-wrap;
-}
-
-.response {
-  color: var(--muted);
-}
-
-@media (max-width: 600px) {
-  .card {
-    padding: 20px;
-  }
-
-  .status-row {
-    flex-direction: column;
-    align-items: flex-start;
+function loadMemory() {
+  try {
+    const raw = fs.readFileSync(memoryFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.error('Failed to load conversation memory:', error);
+    return {};
   }
 }
+
+function saveMemory() {
+  try {
+    fs.writeFileSync(memoryFile, JSON.stringify(conversationMemory, null, 2));
+  } catch (error) {
+    console.error('Failed to save conversation memory:', error);
+  }
+}
+
+function getSessionHistory(sessionId) {
+  const session = conversationMemory[sessionId];
+  if (Array.isArray(session)) {
+    return session;
+  }
+  conversationMemory[sessionId] = [];
+  saveMemory();
+  return conversationMemory[sessionId];
+}
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, message: 'Voice assistant is running.' });
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { message, sessionId } = req.body;
+
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'A non-empty message is required.' });
+  }
+
+  const safeSessionId = sessionId || 'default';
+  const history = getSessionHistory(safeSessionId);
+
+  history.push({ role: 'user', content: message.trim() });
+
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    return res.status(500).json({
+      error: 'OPENAI_API_KEY is missing. Add it to your .env file before running the app.'
+    });
+  }
+
+  try {
+    const completionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a helpful voice assistant. Remember the conversation history provided to you and stay consistent with prior context. Keep responses short, natural, and conversational.'
+          },
+          ...history
+        ],
+        temperature: 0.8,
+        max_tokens: 250
+      })
+    });
+
+    const completionData = await completionResponse.json();
+
+    if (!completionResponse.ok) {
+      const errorMessage = completionData?.error?.message || 'Unknown OpenAI error.';
+      return res.status(completionResponse.status).json({ error: errorMessage });
+    }
+
+    const reply =
+      completionData?.choices?.[0]?.message?.content?.trim() || 'I could not generate a response.';
+
+    history.push({ role: 'assistant', content: reply });
+    saveMemory();
+
+    res.json({ reply, sessionId: safeSessionId, memory: history });
+  } catch (error) {
+    console.error('Chat completion error:', error);
+    res.status(500).json({ error: 'Failed to contact OpenAI. Please try again.' });
+  }
+});
+
+app.get('/api/session/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+  const history = getSessionHistory(sessionId);
+  res.json({ sessionId, memory: history });
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(port, () => {
+  console.log(`Voice assistant running at http://localhost:${port}`);
+});

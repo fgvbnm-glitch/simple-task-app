@@ -1,179 +1,191 @@
-const micButton = document.getElementById('micButton');
-const transcriptBox = document.getElementById('transcript');
-const responseBox = document.getElementById('response');
-const statusIndicator = document.getElementById('statusIndicator');
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition;
-let listening = false;
-let wakeDetected = false;
-let pendingPrompt = '';
-
-function setStatus(mode) {
-  statusIndicator.className = 'status';
-  statusIndicator.classList.add(mode);
-  if (mode === 'idle') {
-    statusIndicator.textContent = 'Idle';
-  } else if (mode === 'listening') {
-    statusIndicator.textContent = 'Listening';
-  } else if (mode === 'speaking') {
-    statusIndicator.textContent = 'Speaking';
-  }
+* {
+  box-sizing: border-box;
 }
 
-function speak(text) {
-  if (!('speechSynthesis' in window)) {
-    return;
-  }
-
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'en-US';
-  utterance.rate = 1;
-  utterance.pitch = 1;
-
-  setStatus('speaking');
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utterance);
-
-  utterance.onend = () => {
-    setStatus(listening ? 'listening' : 'idle');
-  };
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-alt: #1f2937;
+  --primary: #7c3aed;
+  --primary-light: #a78bfa;
+  --text: #f3f4f6;
+  --muted: #cbd5e1;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
 }
 
-function normalizePrompt(prompt) {
-  return prompt
-    .replace(/\b(?:hey|hi)\s+chatgpt\b/gi, '')
-    .replace(/\b(?:send|send it|submit|done)\b/gi, '')
-    .replace(/\b(?:period|dot)\b/gi, '')
-    .replace(/[.?!]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Arial, Helvetica, sans-serif;
+  background: linear-gradient(135deg, #111827 0%, #0f172a 50%, #1e293b 100%);
+  color: var(--text);
+  display: grid;
+  place-items: center;
 }
 
-async function sendToChatGPT(prompt) {
-  if (!prompt) {
-    return;
-  }
-
-  transcriptBox.textContent = `Sending: ${prompt}`;
-  responseBox.textContent = 'Thinking...';
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: prompt })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.error || 'Request failed');
-    }
-
-    responseBox.textContent = data.reply;
-    speak(data.reply);
-  } catch (error) {
-    console.error(error);
-    responseBox.textContent = `Error: ${error.message}`;
-    speak('I could not process that request.');
-  }
+.app-shell {
+  width: min(100%, 760px);
+  padding: 24px;
 }
 
-function startListening() {
-  if (!SpeechRecognition) {
-    responseBox.textContent = 'This browser does not support speech recognition. Please use Chrome or Edge.';
-    return;
-  }
-
-  if (!recognition) {
-    recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onstart = () => {
-      listening = true;
-      setStatus('listening');
-      transcriptBox.textContent = 'Listening for “Hey ChatGPT”…';
-    };
-
-    recognition.onresult = (event) => {
-      const fullTranscript = Array.from(event.results)
-        .map((result) => result[0].transcript)
-        .join(' ');
-
-      transcriptBox.textContent = fullTranscript;
-
-      const lowerTranscript = fullTranscript.toLowerCase();
-      const hasWakeWord = /hey\s+chatgpt/i.test(lowerTranscript);
-
-      if (hasWakeWord) {
-        wakeDetected = true;
-      }
-
-      if (!wakeDetected) {
-        return;
-      }
-
-      const cleaned = fullTranscript.replace(/.*?hey\s+chatgpt/i, '').trim();
-      pendingPrompt = cleaned;
-
-      const shouldSubmit =
-        /\b(?:send|send it|submit|done)\b/i.test(fullTranscript) ||
-        /\b(?:period|dot)\b/i.test(fullTranscript) ||
-        /\.$/.test(fullTranscript);
-
-      if (shouldSubmit) {
-        const finalPrompt = normalizePrompt(pendingPrompt);
-        if (finalPrompt) {
-          sendToChatGPT(finalPrompt);
-        }
-
-        wakeDetected = false;
-        pendingPrompt = '';
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      responseBox.textContent = `Speech recognition error: ${event.error}`;
-    };
-
-    recognition.onend = () => {
-      if (listening) {
-        recognition.start();
-      }
-    };
-  }
-
-  recognition.start();
-  listening = true;
-  setStatus('listening');
-  transcriptBox.textContent = 'Listening for “Hey ChatGPT”…';
+.card {
+  background: rgba(17, 24, 39, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
 }
 
-function stopListening() {
-  listening = false;
-  wakeDetected = false;
-  pendingPrompt = '';
-
-  if (recognition) {
-    recognition.stop();
-  }
-
-  setStatus('idle');
-  transcriptBox.textContent = 'Mic stopped. Press start to resume.';
+.badge {
+  margin: 0 0 12px;
+  display: inline-block;
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--primary-light);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-micButton.addEventListener('click', () => {
-  if (listening) {
-    stopListening();
-    micButton.textContent = 'Start listening';
-  } else {
-    startListening();
-    micButton.textContent = 'Stop listening';
-  }
-});
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
 
-setStatus('idle');
+.subtitle {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 12px 0 22px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.mic-button,
+.clear-button {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mic-button {
+  background: linear-gradient(135deg, var(--primary), #4f46e5);
+  box-shadow: 0 12px 30px rgba(124, 58, 237, 0.4);
+}
+
+.clear-button {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.mic-button:hover,
+.clear-button:hover {
+  transform: translateY(-1px);
+}
+
+.status {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.status.idle {
+  color: var(--muted);
+}
+
+.status.listening {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.status.speaking {
+  color: #fef3c7;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.panel {
+  background: rgba(31, 41, 55, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 20px;
+  margin-top: 8px;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+}
+
+.transcript,
+.response,
+.memory-box {
+  min-height: 88px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.response {
+  color: var(--muted);
+}
+
+.memory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.memory-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 80px;
+  color: var(--muted);
+}
+
+.memory-item {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+.memory-item.user {
+  border-left: 3px solid var(--primary-light);
+}
+
+.memory-item.assistant {
+  border-left: 3px solid var(--success);
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 20px;
+  }
+
+  .status-row,
+  .memory-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
