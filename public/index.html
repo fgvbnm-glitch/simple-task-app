@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hey ChatGPT Voice Assistant</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <div class="card">
+        <p class="badge">Voice Assistant</p>
+        <h1>Hey ChatGPT</h1>
+        <p class="subtitle">Say “Hey ChatGPT” and then speak your question. Say “send” or “.” to submit.</p>
+
+        <div class="status-row">
+          <button id="micButton" class="mic-button" type="button">Start listening</button>
+          <span id="statusIndicator" class="status idle">Idle</span>
+        </div>
+
+        <div class="panel">
+          <h2>Live transcript</h2>
+          <div id="transcript" class="transcript">Waiting for wake word...</div>
+        </div>
+
+        <div class="panel response-panel">
+          <h2>ChatGPT response</h2>
+          <div id="response" class="response">No response yet.</div>
+        </div>
+      </div>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
